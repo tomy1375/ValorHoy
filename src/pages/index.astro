@@ -1,11 +1,496 @@
 ---
-import Welcome from '../components/Welcome.astro';
 import Layout from '../layouts/Layout.astro';
+import CurrencyCard from '../components/CurrencyCard.astro';
+import CryptoCard from '../components/CryptoCard.astro';
+import ThemeToggle from '../components/ThemeToggle.astro';
+import LoadingIndicator from '../components/LoadingIndicator.astro';
+import { Icon } from 'astro-icon/components';
 
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+// Variables para controlar el estado de carga
+let isLoadingDolar = true;
+let isLoadingCrypto = true;
+let dolarError = false;
+let cryptoError = false;
+
+// Función para obtener datos de dólar con mejor manejo de errores
+async function getDolarData() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 segundos de timeout
+    
+    const response = await fetch('https://dolarapi.com/v1/dolares', {
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error(`Error HTTP: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    isLoadingDolar = false;
+    return data;
+  } catch (error) {
+    console.error('Error al obtener datos de dólar:', error);
+    isLoadingDolar = false;
+    dolarError = true;
+    return [];
+  }
+}
+
+// Función para obtener datos de criptomonedas sin usar localStorage en el servidor
+async function getCryptoData() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 segundos de timeout
+    
+    // Intentar hasta 3 veces con un pequeño retraso entre intentos
+    let attempt = 0;
+    let error;
+    
+    while (attempt < 3) {
+      try {
+        const response = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,dogecoin&order=market_cap_desc&per_page=100&page=1&sparkline=false&locale=en', {
+          signal: controller.signal,
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`Error HTTP: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        isLoadingCrypto = false;
+        return data;
+      } catch (e) {
+        error = e;
+        attempt++;
+        // Esperar un poco antes de reintentar (500ms, 1000ms, 1500ms)
+        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+      }
+    }
+    
+    // Si llegamos aquí, todos los intentos fallaron
+    throw error;
+  } catch (error) {
+    console.error('Error al obtener datos de criptomonedas después de reintentos:', error);
+    isLoadingCrypto = false;
+    cryptoError = true;
+    return [];
+  }
+}
+
+// Obtener datos
+const dolarData = await getDolarData();
+const cryptoData = await getCryptoData();
+
+// Datos por defecto en caso de error
+const defaultDolarData = [
+  { casa: 'blue', compra: 1150, venta: 1170, variacion: 0.5 },
+  { casa: 'oficial', compra: 920, venta: 960, variacion: 0.2 },
+  { casa: 'bolsa', compra: 1100, venta: 1110, variacion: -0.3 },
+  { casa: 'contadoconliqui', compra: 1120, venta: 1130, variacion: 0.1 },
+  { casa: 'tarjeta', compra: null, venta: 1680, variacion: 0.4 }
+];
+
+const defaultCryptoData = [
+  { id: 'bitcoin', current_price: 62450.30, price_change_percentage_24h: 1.2 },
+  { id: 'ethereum', current_price: 3050.75, price_change_percentage_24h: -0.8 },
+  { id: 'dogecoin', current_price: 0.12, price_change_percentage_24h: 5.3 }
+];
+
+// Usar datos de la API o datos por defecto en caso de error
+const dolarDataToUse = dolarData.length > 0 ? dolarData : defaultDolarData;
+const cryptoDataToUse = cryptoData.length > 0 ? cryptoData : defaultCryptoData;
+
+// Mapear datos de dólar a nuestro formato
+// Mapear datos de dólar a nuestro formato
+const dolarTypes = [
+  {
+    name: 'Dólar Blue',
+    buy: dolarDataToUse.find(d => d.casa === 'blue')?.compra || 1150,
+    sell: dolarDataToUse.find(d => d.casa === 'blue')?.venta || 1170,
+    variation: dolarDataToUse.find(d => d.casa === 'blue')?.variacion || 0.5,
+    icon: 'banknote', // Quitar el prefijo lucide:
+    code: 'blue' // Código para la URL
+  },
+  {
+    name: 'Dólar Oficial',
+    buy: dolarDataToUse.find(d => d.casa === 'oficial')?.compra || 920,
+    sell: dolarDataToUse.find(d => d.casa === 'oficial')?.venta || 960,
+    variation: dolarDataToUse.find(d => d.casa === 'oficial')?.variacion || 0.2,
+    icon: 'landmark', // Quitar el prefijo lucide:
+    code: 'oficial' // Código para la URL
+  },
+  {
+    name: 'Dólar MEP',
+    buy: dolarDataToUse.find(d => d.casa === 'bolsa')?.compra || 1100,
+    sell: dolarDataToUse.find(d => d.casa === 'bolsa')?.venta || 1110,
+    variation: dolarDataToUse.find(d => d.casa === 'bolsa')?.variacion || -0.3,
+    icon: 'trending-up', // Quitar el prefijo lucide:
+    code: 'bolsa' // Cambiado a 'bolsa' para coincidir con la API
+  },
+  {
+    name: 'Dólar CCL',
+    buy: dolarDataToUse.find(d => d.casa === 'contadoconliqui')?.compra || 1120,
+    sell: dolarDataToUse.find(d => d.casa === 'contadoconliqui')?.venta || 1130,
+    variation: dolarDataToUse.find(d => d.casa === 'contadoconliqui')?.variacion || 0.1,
+    icon: 'bar-chart-2', // Quitar el prefijo lucide:
+    code: 'contadoconliqui' // Cambiado a 'contadoconliqui' para coincidir con la API
+  },
+  {
+    name: 'Dólar Tarjeta',
+    buy: null,
+    sell: dolarDataToUse.find(d => d.casa === 'tarjeta')?.venta || 1680,
+    variation: dolarDataToUse.find(d => d.casa === 'tarjeta')?.variacion || 0.4,
+    icon: 'credit-card', // Quitar el prefijo lucide:
+    code: 'tarjeta' // Código para la URL
+  }
+];
+
+// Mapear datos de criptomonedas a nuestro formato
+const cryptos = [
+  {
+    name: 'Bitcoin',
+    symbol: 'BTC',
+    price: cryptoDataToUse.find(c => c.id === 'bitcoin')?.current_price || 62450.30,
+    variation: cryptoDataToUse.find(c => c.id === 'bitcoin')?.price_change_percentage_24h || 1.2,
+    icon: 'bitcoin', // Quitar el prefijo lucide:
+    id: 'bitcoin' // ID para la URL
+  },
+  {
+    name: 'Ethereum',
+    symbol: 'ETH',
+    price: cryptoDataToUse.find(c => c.id === 'ethereum')?.current_price || 3050.75,
+    variation: cryptoDataToUse.find(c => c.id === 'ethereum')?.price_change_percentage_24h || -0.8,
+    icon: 'circle-dollar-sign', // Quitar el prefijo lucide:
+    id: 'ethereum' // ID para la URL
+  },
+  {
+    name: 'Dogecoin',
+    symbol: 'DOGE',
+    price: cryptoDataToUse.find(c => c.id === 'dogecoin')?.current_price || 0.12,
+    variation: cryptoDataToUse.find(c => c.id === 'dogecoin')?.price_change_percentage_24h || 5.3,
+    icon: 'circle', // Quitar el prefijo lucide:
+    id: 'dogecoin' // ID para la URL
+  }
+];
+
+const lastUpdate = new Date().toLocaleString('es-AR', { 
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit'
+});
+
+// Serializar los datos para pasarlos al cliente
+const serializedCryptoData = JSON.stringify(cryptoDataToUse);
+const serializedDolarData = JSON.stringify(dolarDataToUse);
+
+// Guardar mapeo de códigos para el cliente
+const dolarCodeMapping = {
+  'bolsa': 'mep',
+  'contadoconliqui': 'ccl'
+};
 ---
 
-<Layout>
-	<Welcome />
+<Layout title="Valor Hoy - Cotizaciones en Argentina">
+  <main class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-8">
+      <div>
+        <h1 class="text-3xl font-bold text-primary">Valor Hoy</h1>
+        <p class="text-muted-foreground">Cotizaciones actualizadas de Argentina</p>
+      </div>
+      <ThemeToggle />
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+      <div>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-semibold flex items-center gap-2">
+            <Icon name="lucide:dollar-sign" class="h-5 w-5" />
+            Cotizaciones del Dólar
+          </h2>
+          <span class="text-sm text-muted-foreground" id="dolar-update-timestamp">Actualizado: {lastUpdate}</span>
+        </div>
+        
+        {isLoadingDolar ? (
+          <LoadingIndicator />
+        ) : dolarError ? (
+          <div class="p-4 bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 rounded-lg">
+            <p>Error al cargar datos. Mostrando valores predeterminados.</p>
+          </div>
+        ) : (
+          <div class="grid gap-4">
+            {dolarTypes.map(dolar => (
+              <CurrencyCard 
+                name={dolar.name} 
+                buy={dolar.buy} 
+                sell={dolar.sell} 
+                variation={dolar.variation}
+                icon={dolar.icon}
+                code={dolar.code}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-semibold flex items-center gap-2">
+            <Icon name="lucide:bitcoin" class="h-5 w-5" />
+            Criptomonedas
+          </h2>
+          <span class="text-sm text-muted-foreground" id="crypto-update-timestamp">Actualizado: {lastUpdate}</span>
+        </div>
+        
+        {isLoadingCrypto ? (
+          <LoadingIndicator />
+        ) : cryptoError ? (
+          <div class="p-4 bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 rounded-lg">
+            <p>Error al cargar datos. Mostrando valores predeterminados.</p>
+          </div>
+        ) : (
+          <div class="grid gap-4" id="crypto-container">
+            {cryptos.map(crypto => (
+              <CryptoCard 
+                name={crypto.name} 
+                symbol={crypto.symbol} 
+                price={crypto.price} 
+                variation={crypto.variation}
+                icon={crypto.icon}
+                id={crypto.id}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+
+    <footer class="mt-12 text-center text-sm text-muted-foreground">
+      <p>Datos obtenidos de DolarApi y CoinGecko API.</p>
+      <p class="mt-2">© {new Date().getFullYear()} Valor Hoy - Desarrollado ZenithStudio</p>
+    </footer>
+  </main>
 </Layout>
+
+<!-- Script para actualización automática y caché del lado del cliente -->
+<script define:vars={{ serializedCryptoData, serializedDolarData, lastUpdate, dolarCodeMapping }}>
+  // Inicializar caché global para gráficos
+  if (!window.priceDataCache) {
+    window.priceDataCache = {};
+    
+    // Intentar cargar caché desde localStorage
+    try {
+      const savedCache = localStorage.getItem('priceDataCache');
+      if (savedCache) {
+        window.priceDataCache = JSON.parse(savedCache);
+        console.log('Caché de gráficos cargada desde localStorage');
+      }
+    } catch (e) {
+      console.error('Error al cargar caché de gráficos:', e);
+    }
+  }
+  
+  // Guardar los datos en localStorage desde el cliente
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      // Guardar los datos que recibimos del servidor
+      localStorage.setItem('cryptoData', serializedCryptoData);
+      localStorage.setItem('dolarData', serializedDolarData);
+      localStorage.setItem('dataTimestamp', new Date().getTime().toString());
+      localStorage.setItem('dolarCodeMapping', JSON.stringify(dolarCodeMapping));
+      
+      // Función para obtener datos frescos de la API
+      const refreshData = async () => {
+        try {
+          // Actualizar criptomonedas
+          const cryptoResponse = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,dogecoin&order=market_cap_desc&per_page=100&page=1&sparkline=false&locale=en', {
+            headers: {
+              'Accept': 'application/json'
+            }
+          });
+          
+          if (cryptoResponse.ok) {
+            const cryptoData = await cryptoResponse.json();
+            localStorage.setItem('cryptoData', JSON.stringify(cryptoData));
+            
+            // Actualizar UI de criptomonedas
+            updateCryptoUI(cryptoData);
+          }
+          
+          // Actualizar dólares
+          const dolarResponse = await fetch('https://dolarapi.com/v1/dolares');
+          
+          if (dolarResponse.ok) {
+            const dolarData = await dolarResponse.json();
+            localStorage.setItem('dolarData', JSON.stringify(dolarData));
+            
+            // Actualizar UI de dólares
+            updateDolarUI(dolarData);
+          }
+          
+          // Actualizar timestamp
+          localStorage.setItem('dataTimestamp', new Date().getTime().toString());
+          
+          // Actualizar timestamps en la UI
+          const now = new Date().toLocaleString('es-AR', { 
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          
+          document.getElementById('crypto-update-timestamp').textContent = `Actualizado: ${now}`;
+          document.getElementById('dolar-update-timestamp').textContent = `Actualizado: ${now}`;
+          
+          console.log('Datos actualizados:', new Date());
+        } catch (error) {
+          console.error('Error al actualizar datos:', error);
+        }
+      };
+      
+      // Función para actualizar UI de criptomonedas
+      function updateCryptoUI(cryptoData) {
+        cryptoData.forEach(crypto => {
+          const card = document.querySelector(`[data-crypto-id="${crypto.id}"]`);
+          if (card) {
+            const priceElement = card.querySelector('[data-crypto-price]');
+            const variationElement = card.querySelector('[data-crypto-variation]');
+            
+            if (priceElement && crypto.current_price) {
+              priceElement.textContent = new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: crypto.current_price < 1 ? 4 : 2,
+                maximumFractionDigits: crypto.current_price < 1 ? 4 : 2
+              }).format(crypto.current_price);
+            }
+            
+            if (variationElement && crypto.price_change_percentage_24h) {
+              variationElement.textContent = `${Math.abs(crypto.price_change_percentage_24h).toFixed(2)}%`;
+              
+              // Actualizar color de variación
+              if (crypto.price_change_percentage_24h >= 0) {
+                variationElement.classList.add('text-green-500');
+                variationElement.classList.remove('text-red-500');
+              } else {
+                variationElement.classList.add('text-red-500');
+                variationElement.classList.remove('text-green-500');
+              }
+            }
+          }
+        });
+      }
+      
+      // Función para actualizar UI de dólares
+      function updateDolarUI(dolarData) {
+        dolarData.forEach(dolar => {
+          const card = document.querySelector(`[data-dolar-code="${dolar.casa}"]`);
+          if (card) {
+            const buyElement = card.querySelector('[data-dolar-buy]');
+            const sellElement = card.querySelector('[data-dolar-sell]');
+            const variationElement = card.querySelector('[data-dolar-variation]');
+            
+            if (buyElement && dolar.compra) {
+              buyElement.textContent = new Intl.NumberFormat('es-AR', {
+                style: 'currency',
+                currency: 'ARS',
+                maximumFractionDigits: 0
+              }).format(dolar.compra);
+            }
+            
+            if (sellElement && dolar.venta) {
+              sellElement.textContent = new Intl.NumberFormat('es-AR', {
+                style: 'currency',
+                currency: 'ARS',
+                maximumFractionDigits: 0
+              }).format(dolar.venta);
+            }
+            
+            if (variationElement && dolar.variacion) {
+              variationElement.textContent = `${Math.abs(dolar.variacion).toFixed(2)}%`;
+              
+              // Actualizar color de variación
+              if (dolar.variacion >= 0) {
+                variationElement.classList.add('text-green-500');
+                variationElement.classList.remove('text-red-500');
+              } else {
+                variationElement.classList.add('text-red-500');
+                variationElement.classList.remove('text-green-500');
+              }
+            }
+          }
+        });
+      }
+      
+      // Intentar actualizar datos cada 2 minutos
+      setInterval(refreshData, 120000);
+      
+      // Actualizar la página completa cada 10 minutos
+      setInterval(() => {
+        window.location.reload();
+      }, 600000);
+      
+      // Inicializar caché para gráficos
+      function initializeChartCache() {
+        // Precalcular datos para gráficos comunes
+        const dolarTypes = ['blue', 'oficial', 'bolsa', 'contadoconliqui', 'tarjeta'];
+        const cryptoTypes = ['bitcoin', 'ethereum', 'dogecoin'];
+        const dayPeriods = [7, 30, 90];
+        
+        // Mapeo de códigos de dólar
+        const codeMapping = JSON.parse(localStorage.getItem('dolarCodeMapping') || '{}');
+        
+        // Generar datos para dólares
+        dolarTypes.forEach(dolarType => {
+          dayPeriods.forEach(days => {
+            // Usar el código original para la caché
+            const cacheKey = `dolar-${dolarType}-${days}`;
+            
+            // Si no existe en caché, crear entrada vacía para que se genere después
+            if (!window.priceDataCache[cacheKey]) {
+              window.priceDataCache[cacheKey] = {
+                timestamp: Date.now()
+              };
+            }
+          });
+        });
+        
+        // Generar datos para criptomonedas
+        cryptoTypes.forEach(cryptoType => {
+          dayPeriods.forEach(days => {
+            const cacheKey = `crypto-${cryptoType}-${days}`;
+            
+            // Si no existe en caché, crear entrada vacía para que se genere después
+            if (!window.priceDataCache[cacheKey]) {
+              window.priceDataCache[cacheKey] = {
+                timestamp: Date.now()
+              };
+            }
+          });
+        });
+        
+        // Guardar caché en localStorage
+        try {
+          localStorage.setItem('priceDataCache', JSON.stringify(window.priceDataCache));
+        } catch (e) {
+          console.error('Error al guardar caché de gráficos:', e);
+        }
+      }
+      
+      // Inicializar caché para gráficos
+      initializeChartCache();
+    } catch (e) {
+      console.error('Error al usar localStorage:', e);
+    }
+  }
+</script>

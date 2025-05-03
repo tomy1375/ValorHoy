@@ -1,0 +1,62 @@
+---
+import { Icon } from 'astro-icon/components';
+
+interface Props {
+  name: string;
+  symbol: string;
+  price: number;
+  variation: number;
+  icon: string;
+  id: string;
+}
+
+const { name, symbol, price, variation, icon, id } = Astro.props;
+
+const formatPrice = (value: number) => {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: value < 1 ? 4 : 2,
+    maximumFractionDigits: value < 1 ? 4 : 2
+  }).format(value);
+};
+
+// Asegurarse de que variation sea un número
+const numericVariation = typeof variation === 'number' ? variation : parseFloat(String(variation).replace(',', '.'));
+const variationColor = numericVariation >= 0 ? 'text-green-500' : 'text-red-500';
+const variationIcon = numericVariation >= 0 ? 'lucide:arrow-up' : 'lucide:arrow-down';
+
+// Obtener el valor del dólar oficial para la conversión
+const dolarOficial = 920; // Valor por defecto si no se puede obtener de la API
+---
+
+<a href={`/crypto/${id}`} class="block transition-transform hover:scale-[1.02] active:scale-[0.98]" data-crypto-id={id}>
+  <div class="bg-card rounded-lg p-4 shadow-sm border hover:border-primary/50 transition-colors">
+    <div class="flex justify-between items-center mb-3">
+      <div class="flex items-center gap-2">
+        <div class="bg-primary/10 p-2 rounded-full">
+          <Icon name={`lucide:${icon}`} class="h-5 w-5 text-primary" />
+        </div>
+        <div>
+          <h3 class="font-medium">{name}</h3>
+          <p class="text-xs text-muted-foreground">{symbol}</p>
+        </div>
+      </div>
+      <div class={`flex items-center gap-1 text-sm ${variationColor}`}>
+        <Icon name={variationIcon} class="h-3 w-3" />
+        <span data-crypto-variation>{Math.abs(numericVariation).toFixed(2)}%</span>
+      </div>
+    </div>
+    <div>
+      <p class="text-xs text-muted-foreground">Precio actual</p>
+      <p class="text-lg font-semibold" data-crypto-price>{formatPrice(price)}</p>
+      <p class="text-xs text-muted-foreground mt-1">
+        {formatPrice(price * dolarOficial)} ARS (Dólar Oficial)
+      </p>
+    </div>
+    <div class="mt-3 text-xs text-primary flex items-center justify-end">
+      <span>Ver gráfico</span>
+      <Icon name="lucide:chevron-right" class="h-3 w-3 ml-1" />
+    </div>
+  </div>
+</a>

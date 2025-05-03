@@ -1,0 +1,63 @@
+---
+import { Icon } from 'astro-icon/components';
+---
+
+<button id="theme-toggle" class="bg-card border rounded-full p-2 shadow-sm">
+  <Icon name="lucide:sun" class="h-5 w-5 dark:hidden" />
+  <Icon name="lucide:moon" class="h-5 w-5 hidden dark:block" />
+</button>
+
+<script>
+  // Función para manejar el cambio de tema
+  function toggleTheme() {
+    // Verificar el tema actual
+    const isDark = document.documentElement.classList.contains('dark');
+    
+    // Cambiar el tema
+    if (isDark) {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    } else {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    }
+  }
+
+  // Función para configurar el event listener
+  function setupThemeToggle() {
+    const themeToggle = document.getElementById('theme-toggle');
+    if (themeToggle) {
+      // Verificar que parentNode no sea null antes de usarlo
+      if (themeToggle.parentNode) {
+        // Eliminar event listeners anteriores para evitar duplicados
+        const newThemeToggle = themeToggle.cloneNode(true);
+        themeToggle.parentNode.replaceChild(newThemeToggle, themeToggle);
+        
+        // Añadir el nuevo event listener
+        newThemeToggle.addEventListener('click', toggleTheme);
+      } else {
+        // Si no hay parentNode, simplemente añadir el event listener directamente
+        themeToggle.addEventListener('click', toggleTheme);
+      }
+    }
+  }
+  
+  // Configurar en la carga inicial
+  document.addEventListener('DOMContentLoaded', setupThemeToggle);
+  
+  // Configurar después de cada navegación con ViewTransitions
+  document.addEventListener('astro:page-load', setupThemeToggle);
+  
+  // Asegurar que el tema se mantenga durante las transiciones
+  document.addEventListener('astro:after-swap', () => {
+    // Obtener el tema actual del localStorage
+    const theme = localStorage.getItem('theme') || 'dark';
+    
+    // Aplicar el tema después del intercambio de contenido
+    if (theme === 'light') {
+      document.documentElement.classList.remove('dark');
+    } else {
+      document.documentElement.classList.add('dark');
+    }
+  });
+</script>

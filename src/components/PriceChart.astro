@@ -1,0 +1,467 @@
+---
+// Este componente se renderizará en el servidor pero incluirá scripts para el cliente
+export interface Props {
+  title: string;
+  type: 'dolar' | 'crypto';
+  code: string;
+  days?: number;
+  buyPrice?: number | null;
+  sellPrice?: number | null;
+}
+
+const { title, type, code, days = 7, buyPrice, sellPrice } = Astro.props;
+// Genera un ID único para este gráfico
+const chartId = `chart-${type}-${code}-${Math.random().toString(36).substring(2, 9)}`;
+---
+
+<div class="bg-card p-6 rounded-lg border shadow-sm">
+  <div class="flex justify-between items-center mb-4">
+    <h2 class="text-xl font-semibold">{title}</h2>
+    <div class="flex gap-2">
+      <button 
+        class="text-sm px-3 py-1 rounded-md bg-primary text-primary-foreground" 
+        data-days="7"
+        data-chart-id={chartId}
+      >
+        7 días
+      </button>
+      <button 
+        class="text-sm px-3 py-1 rounded-md bg-primary/10 hover:bg-primary/20 transition-colors" 
+        data-days="30"
+        data-chart-id={chartId}
+      >
+        30 días
+      </button>
+      <button 
+        class="text-sm px-3 py-1 rounded-md bg-primary/10 hover:bg-primary/20 transition-colors" 
+        data-days="90"
+        data-chart-id={chartId}
+      >
+        90 días
+      </button>
+    </div>
+  </div>
+  
+  {type === 'dolar' && (
+    <div class="grid grid-cols-2 gap-4 mb-4">
+      <div>
+        <p class="text-xs text-muted-foreground">Compra</p>
+        <p class="text-lg font-semibold">
+          {buyPrice !== null && buyPrice !== undefined 
+            ? `AR$ ${buyPrice.toLocaleString('es-AR')}` 
+            : '-'}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-muted-foreground">Venta</p>
+        <p class="text-lg font-semibold">
+          {sellPrice !== null && sellPrice !== undefined 
+            ? `AR$ ${sellPrice.toLocaleString('es-AR')}` 
+            : '-'}
+        </p>
+      </div>
+    </div>
+  )}
+  
+  <div class="h-[300px] relative">
+    <canvas id={chartId}></canvas>
+    <div id={`loading-${chartId}`} class="absolute inset-0 flex items-center justify-center">
+      <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+    </div>
+    <div id={`error-${chartId}`} class="absolute inset-0 flex flex-col items-center justify-center hidden">
+      <p class="text-red-500 mb-2">Error al cargar datos</p>
+      <button id={`retry-${chartId}`} class="px-4 py-2 bg-primary text-primary-foreground rounded-md">
+        Reintentar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Asegúrate de que Chart.js esté disponible -->
+<script is:inline>
+  // Cargar Chart.js si aún no está cargado
+  if (!window.Chart) {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+  
+  // Sistema de caché mejorado usando localStorage
+  if (!window.priceDataCache) {
+    window.priceDataCache = {};
+    
+    // Intentar cargar caché desde localStorage
+    try {
+      const savedCache = localStorage.getItem('priceDataCache');
+      if (savedCache) {
+        window.priceDataCache = JSON.parse(savedCache);
+        console.log('Caché cargada desde localStorage');
+      }
+    } catch (e) {
+      console.error('Error al cargar caché:', e);
+    }
+  }
+  
+  // Función para guardar caché en localStorage
+  window.savePriceDataCache = function() {
+    try {
+      localStorage.setItem('priceDataCache', JSON.stringify(window.priceDataCache));
+    } catch (e) {
+      console.error('Error al guardar caché:', e);
+    }
+  };
+  
+  // Limpiar caché antigua (más de 1 hora)
+  window.cleanPriceDataCache = function() {
+    const now = Date.now();
+    let cleaned = false;
+    
+    for (const key in window.priceDataCache) {
+      if (window.priceDataCache[key].timestamp && 
+          now - window.priceDataCache[key].timestamp > 3600000) { // 1 hora
+        delete window.priceDataCache[key];
+        cleaned = true;
+      }
+    }
+    
+    if (cleaned) {
+      window.savePriceDataCache();
+    }
+  };
+  
+  // Limpiar caché antigua al cargar
+  window.cleanPriceDataCache();
+</script>
+
+<script define:vars={{ type, code, days, chartId, buyPrice, sellPrice }}>
+  // Función para inicializar el gráfico cuando Chart.js esté listo
+  function initializeChartWhenReady() {
+    if (window.Chart) {
+      initChart();
+    } else {
+      // Si Chart.js aún no está cargado, esperar un poco y reintentar
+      setTimeout(initializeChartWhenReady, 100);
+    }
+  }
+
+  // Iniciar el proceso cuando el DOM esté listo
+  document.addEventListener('DOMContentLoaded', initializeChartWhenReady);
+  
+  // Función para inicializar el gráfico
+  function initChart() {
+    const ctx = document.getElementById(chartId);
+    const loading = document.getElementById(`loading-${chartId}`);
+    const errorMessage = document.getElementById(`error-${chartId}`);
+    
+    if (!ctx || !loading || !errorMessage) {
+      console.error(`No se encontraron elementos necesarios del DOM para el gráfico ${chartId}`);
+      return;
+    }
+    
+    // Mostrar carga y ocultar error
+    loading.style.display = 'flex';
+    errorMessage.style.display = 'none';
+    
+    try {
+      // Intentar obtener datos de la caché primero
+      const cacheKey = `${type}-${code}-${days}`;
+      let historicalData;
+      
+      if (window.priceDataCache[cacheKey] && window.priceDataCache[cacheKey].data) {
+        console.log(`Usando datos en caché para ${cacheKey}`);
+        historicalData = window.priceDataCache[cacheKey].data;
+      } else {
+        // Si no hay datos en caché, generarlos
+        historicalData = generateMockData(days, type, code);
+        // Guardar en caché para futuras solicitudes
+        window.priceDataCache[cacheKey] = {
+          data: historicalData,
+          timestamp: Date.now()
+        };
+        // Guardar en localStorage
+        window.savePriceDataCache();
+      }
+      
+      if (!historicalData || historicalData.length === 0) {
+        throw new Error('No se pudieron generar datos');
+      }
+      
+      // Configurar datos para el gráfico
+      const labels = historicalData.map(item => {
+        const date = new Date(item.date);
+        return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+      });
+      
+      const values = historicalData.map(item => item.value);
+      
+      // Determinar colores basados en la tendencia
+      const startPrice = values[0];
+      const endPrice = values[values.length - 1];
+      const isPositiveTrend = endPrice >= startPrice;
+      
+      const gradientColor = isPositiveTrend ? 
+        'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+      const lineColor = isPositiveTrend ? 
+        'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)';
+      
+      // Crear gradiente
+      const context = ctx.getContext('2d');
+      const gradient = context.createLinearGradient(0, 0, 0, 300);
+      gradient.addColorStop(0, gradientColor);
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      
+      // Configuración especial para valores pequeños como Dogecoin
+      const useSmallValueFormat = type === 'crypto' && (code === 'dogecoin' || values[0] < 1);
+      const formatOptions = {
+        minimumFractionDigits: useSmallValueFormat ? 4 : 2,
+        maximumFractionDigits: useSmallValueFormat ? 4 : 2
+      };
+      
+      // Crear gráfico
+      window[`chart_${chartId}`] = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: type === 'dolar' ? 'Precio en ARS' : 'Precio en USD',
+            data: values,
+            borderColor: lineColor,
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+            pointHoverBackgroundColor: lineColor,
+            tension: 0.4,
+            fill: true,
+            backgroundColor: gradient
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            intersect: false,
+            mode: 'index'
+          },
+          scales: {
+            x: {
+              grid: {
+                display: false
+              }
+            },
+            y: {
+              grid: {
+                color: 'rgba(156, 163, 175, 0.1)'
+              },
+              ticks: {
+                callback: function(value) {
+                  if (type === 'dolar') {
+                    return 'AR$ ' + value.toLocaleString('es-AR');
+                  } else {
+                    return 'US$ ' + value.toLocaleString('en-US', formatOptions);
+                  }
+                }
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  let label = '';
+                  if (type === 'dolar') {
+                    label = 'AR$ ' + context.parsed.y.toLocaleString('es-AR');
+                  } else {
+                    label = 'US$ ' + context.parsed.y.toLocaleString('en-US', formatOptions);
+                  }
+                  return label;
+                }
+              }
+            }
+          }
+        }
+      });
+      
+      // Ocultar carga
+      loading.style.display = 'none';
+    } catch (error) {
+      console.error(`Error al renderizar gráfico ${chartId}:`, error);
+      loading.style.display = 'none';
+      errorMessage.style.display = 'flex';
+    }
+    
+    // Agregar event listeners a los botones de período
+    document.querySelectorAll(`[data-days][data-chart-id="${chartId}"]`).forEach(button => {
+      button.addEventListener('click', (e) => {
+        const selectedDays = parseInt(e.target.getAttribute('data-days'));
+        updateChart(selectedDays);
+        
+        // Actualizar estilo de botones
+        document.querySelectorAll(`[data-days][data-chart-id="${chartId}"]`).forEach(btn => {
+          btn.classList.remove('bg-primary', 'text-primary-foreground');
+          btn.classList.add('bg-primary/10');
+        });
+        e.target.classList.remove('bg-primary/10');
+        e.target.classList.add('bg-primary', 'text-primary-foreground');
+      });
+    });
+    
+    // Agregar event listener al botón de reintento
+    document.getElementById(`retry-${chartId}`)?.addEventListener('click', () => {
+      // Al reintentar, forzar regeneración de datos
+      const cacheKey = `${type}-${code}-${days}`;
+      delete window.priceDataCache[cacheKey];
+      initChart();
+    });
+  }
+  
+  // Función para actualizar el gráfico con nuevos datos
+  function updateChart(newDays) {
+    try {
+      // Intentar obtener datos de la caché primero
+      const cacheKey = `${type}-${code}-${newDays}`;
+      let historicalData;
+      
+      if (window.priceDataCache[cacheKey] && window.priceDataCache[cacheKey].data) {
+        console.log(`Usando datos en caché para ${cacheKey}`);
+        historicalData = window.priceDataCache[cacheKey].data;
+      } else {
+        // Si no hay datos en caché, generarlos
+        historicalData = generateMockData(newDays, type, code);
+        // Guardar en caché para futuras solicitudes
+        window.priceDataCache[cacheKey] = {
+          data: historicalData,
+          timestamp: Date.now()
+        };
+        // Guardar en localStorage
+        window.savePriceDataCache();
+      }
+      
+      // Actualizar datos del gráfico
+      const chart = window[`chart_${chartId}`];
+      chart.data.labels = historicalData.map(item => {
+        const date = new Date(item.date);
+        return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+      });
+      
+      chart.data.datasets[0].data = historicalData.map(item => item.value);
+      
+      // Actualizar gráfico
+      chart.update();
+    } catch (error) {
+      console.error(`Error al actualizar gráfico ${chartId}:`, error);
+      document.getElementById(`error-${chartId}`).style.display = 'flex';
+    }
+  }
+  
+  // Función para generar datos de ejemplo
+// Función para generar datos de ejemplo
+function generateMockData(chartDays, chartType, chartCode) {
+  const data = [];
+  const today = new Date();
+  
+  // Valores base según el tipo y código
+  let baseValue, volatility;
+  
+  if (chartType === 'crypto') {
+    switch (chartCode) {
+      case 'bitcoin':
+        baseValue = 60000;
+        volatility = 0.03; // 3% de volatilidad diaria
+        break;
+      case 'ethereum':
+        baseValue = 3000;
+        volatility = 0.04;
+        break;
+      case 'dogecoin':
+        baseValue = 0.1;
+        volatility = 0.06;
+        break;
+      default:
+        baseValue = 1000;
+        volatility = 0.02;
+    }
+  } else { // dolar
+    // Mapeo inverso para manejar tanto códigos de URL como códigos de API
+    const urlToApiMapping = {
+      'mep': 'bolsa',
+      'ccl': 'contadoconliqui'
+    };
+    
+    // Usar el código mapeado si existe, de lo contrario usar el código original
+    const processedCode = urlToApiMapping[chartCode] || chartCode;
+    
+    switch (processedCode) {
+      case 'blue':
+        baseValue = 1150;
+        volatility = 0.01;
+        break;
+      case 'oficial':
+        baseValue = 920;
+        volatility = 0.005;
+        break;
+      case 'bolsa': // Ahora maneja tanto 'bolsa' como 'mep'
+        baseValue = 1100;
+        volatility = 0.015;
+        break;
+      case 'contadoconliqui': // Ahora maneja tanto 'contadoconliqui' como 'ccl'
+        baseValue = 1120;
+        volatility = 0.015;
+        break;
+      case 'tarjeta':
+        baseValue = 1680;
+        volatility = 0.008;
+        break;
+      default:
+        baseValue = 1000;
+        volatility = 0.01;
+    }
+  }
+  
+  // El resto de la función permanece igual...
+    
+    // Generar tendencia general (alcista, bajista o lateral)
+    const trendType = Math.random();
+    const trendStrength = Math.random() * 0.5 + 0.5; // 0.5 a 1.0
+    
+    let currentValue = baseValue;
+    
+    for (let i = chartDays; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(today.getDate() - i);
+      
+      // Calcular cambio diario basado en volatilidad y tendencia
+      let dailyChange;
+      
+      if (trendType < 0.4) { // Tendencia alcista
+        dailyChange = volatility * (Math.random() * 2 - 0.5) + (trendStrength * volatility);
+      } else if (trendType < 0.8) { // Tendencia bajista
+        dailyChange = volatility * (Math.random() * 2 - 0.5) - (trendStrength * volatility);
+      } else { // Tendencia lateral
+        dailyChange = volatility * (Math.random() * 2 - 1);
+      }
+      
+      // Añadir algo de ruido y ciclos
+      const noise = Math.sin(i / 5) * volatility * 0.5;
+      
+      // Actualizar valor
+      currentValue = currentValue * (1 + dailyChange + noise);
+      
+      // Asegurarse de que el valor no sea negativo
+      currentValue = Math.max(currentValue, baseValue * 0.5);
+      
+      data.push({
+        date: date,
+        value: currentValue
+      });
+    }
+    
+    return data;
+  }
+  
+  // Iniciar el proceso inmediatamente también (como respaldo)
+  setTimeout(initializeChartWhenReady, 500);
+</script>

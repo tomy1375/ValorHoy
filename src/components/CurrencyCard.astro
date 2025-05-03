@@ -1,0 +1,68 @@
+---
+import { Icon } from 'astro-icon/components';
+
+interface Props {
+  name: string;
+  buy: number | null;
+  sell: number | null;
+  variation: number;
+  icon: string;
+  code: string; // Código para la URL
+}
+
+const { name, buy, sell, variation, icon, code } = Astro.props as Props;
+
+// Mapeo de códigos de la API a códigos de URL
+const codeToUrlMapping = {
+  'bolsa': 'mep',
+  'contadoconliqui': 'ccl'
+};
+
+// Usar el código mapeado para la URL si existe, de lo contrario usar el código original
+const urlCode = codeToUrlMapping[code] || code;
+
+const formatCurrency = (value: number | null) => {
+  if (value === null) return '-';
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0
+  }).format(value);
+};
+
+// Asegurarse de que variation sea un número
+const numericVariation = typeof variation === 'number' ? variation : parseFloat(String(variation).replace(',', '.'));
+const variationColor = numericVariation >= 0 ? 'text-green-500' : 'text-red-500';
+const variationIcon = numericVariation >= 0 ? 'lucide:arrow-up' : 'lucide:arrow-down';
+---
+
+<a href={`/dolar/${urlCode}`} class="block transition-transform hover:scale-[1.02] active:scale-[0.98]" data-dolar-code={code}>
+  <div class="bg-card rounded-lg p-4 shadow-sm border hover:border-primary/50 transition-colors">
+    <div class="flex justify-between items-center mb-3">
+      <div class="flex items-center gap-2">
+        <div class="bg-primary/10 p-2 rounded-full">
+          <Icon name={`lucide:${icon}`} class="h-5 w-5 text-primary" />
+        </div>
+        <h3 class="font-medium">{name}</h3>
+      </div>
+      <div class={`flex items-center gap-1 text-sm ${variationColor}`} data-dolar-variation>
+        <Icon name={variationIcon} class="h-3 w-3" />
+        <span>{Math.abs(numericVariation).toFixed(2)}%</span>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <p class="text-xs text-muted-foreground">Compra</p>
+        <p class="text-lg font-semibold" data-dolar-buy>{formatCurrency(buy)}</p>
+      </div>
+      <div>
+        <p class="text-xs text-muted-foreground">Venta</p>
+        <p class="text-lg font-semibold" data-dolar-sell>{formatCurrency(sell)}</p>
+      </div>
+    </div>
+    <div class="mt-3 text-xs text-primary flex items-center justify-end">
+      <span>Ver gráfico</span>
+      <Icon name="lucide:chevron-right" class="h-3 w-3 ml-1" />
+    </div>
+  </div>
+</a>
